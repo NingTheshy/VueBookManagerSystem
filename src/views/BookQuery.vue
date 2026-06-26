@@ -80,6 +80,15 @@
             <el-table-column label="操作" width="100" align="center" fixed="right">
               <template #default="{ row }">
                 <el-button
+                  v-if="isBorrowedByCurrentUser(row.id)"
+                  type="warning"
+                  size="small"
+                  @click="handleReturn(row)"
+                >
+                  归还
+                </el-button>
+                <el-button
+                  v-else
                   type="primary"
                   size="small"
                   :disabled="row.totalCount - row.borrowCount === 0"
@@ -188,6 +197,15 @@ const pagedBooks = computed(() => {
   return filteredBooks.value.slice(start, start + pageSize.value)
 })
 
+// 判断当前用户是否已借出某本书（状态为 borrowing 或 overdue）
+function isBorrowedByCurrentUser(bookId) {
+  const currentUser = authStore.currentUser
+  if (!currentUser) return false
+  return borrowStore.borrows.some(
+    b => b.bookId === bookId && b.userId === currentUser.id && (b.status === 'borrowing' || b.status === 'overdue')
+  )
+}
+
 // 反馈
 const feedbackText = ref('')
 
@@ -270,6 +288,40 @@ function handleBorrow(book) {
   userStore.fetchUsers() // 刷新用户列表以更新最佳读者排行榜
 
   ElMessage.success(`借阅《${book.name}》成功！`)
+}
+
+/**
+ * 归还图书处理
+ */
+function handleReturn(book) {
+  const currentUser = authStore.currentUser
+  if (!currentUser) {
+    ElMessage.error('请先登录')
+    return
+  }
+
+  // 找到当前用户对该书的活跃借阅记录
+  const borrowRecord = borrowStore.borrows.find(
+    b => b.bookId === book.id && b.userId === currentUser.id && (b.status === 'borrowing' || b.status === 'overdue')
+  )
+  if (!borrowRecord) {
+    ElMessage.warning('未找到借阅记录')
+    return
+  }
+
+  // 归还图书
+  borrowStore.returnBook(borrowRecord.id)
+
+  // 更新图书借阅计数
+  bookStore.decrementBorrowCount(book.id)
+
+  // 更新用户借阅统计
+  userStore.updateUser(currentUser.id, {
+    borrowCount: Math.max((currentUser.borrowCount || 1) - 1, 0)
+  })
+  userStore.fetchUsers()
+
+  ElMessage.success(`归还《${book.name}》成功！`)
 }
 
 // 反馈

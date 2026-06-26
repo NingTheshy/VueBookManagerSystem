@@ -79,6 +79,19 @@
           </el-form-item>
         </el-form>
 
+        <!-- 测试账号提示 -->
+        <div class="admin-test-hint">
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+          >
+            <template #title>
+              <span>测试账号：<strong>admin</strong>　密码：<strong>admin123</strong>　<em>（仅做测试使用）</em></span>
+            </template>
+          </el-alert>
+        </div>
+
         <!-- 底部链接 -->
         <div class="admin-login-footer">
           <el-link type="primary" :underline="false" @click="$router.push('/login')">
@@ -467,6 +480,21 @@ onMounted(() => {
   50% {
     box-shadow: 0 6px 28px rgba(64, 158, 255, 0.55);
   }
+}
+
+/* ========== Test hint ========== */
+.admin-test-hint {
+  margin-bottom: 16px;
+}
+
+.admin-test-hint :deep(.el-alert) {
+  border-radius: var(--radius-md);
+}
+
+.admin-test-hint em {
+  color: var(--text-secondary);
+  font-style: normal;
+  font-size: 12px;
 }
 
 /* ========== Footer ========== */
