@@ -1,6 +1,40 @@
 /**
- * useUserStore - 用户状态管理
- * 管理用户数据的增删改查与登录注册
+ * useUserStore - 用户状态管理模块
+ * 
+ * 职责：
+ * - 管理用户数据的完整生命周期（创建、查询、修改、删除）
+ * - 处理用户登录验证（密码比对）和注册（用户名去重）
+ * - 提供多条件筛选（关键词、手机号、地址）
+ * - 维护最佳读者排行榜（按借阅次数排序）
+ * - 每次操作自动写入操作日志
+ * 
+ * 核心数据结构（用户）：
+ * - id: 用户唯一标识
+ * - username: 用户名（登录账号）
+ * - password: 密码（Base64 编码存储）
+ * - phone: 手机号
+ * - age: 年龄
+ * - address: 地址
+ * - role: 角色（'admin' | 'user'）
+ * - borrowCount: 借阅次数
+ * - debt: 欠款金额
+ * - registeredAt: 注册时间
+ * 
+ * 密码安全：
+ * - 存储时使用 Base64 编码（encodePassword）
+ * - 验证时解码后比对（decodeURIComponent(escape(atob(password)))）
+ * - 注意：此为前端演示方案，生产环境应使用后端加密存储
+ * 
+ * 登录流程：
+ * 1. 根据 username 和 role 查找用户
+ * 2. 解码存储的密码
+ * 3. 与输入密码比对
+ * 4. 返回用户对象（成功）或 null（失败）
+ * 
+ * 依赖：
+ * - @/utils/storage: localStorage 持久化操作 + 密码编码工具
+ * - @/utils/id: ID生成工具
+ * - @/stores/log: 操作日志记录
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'

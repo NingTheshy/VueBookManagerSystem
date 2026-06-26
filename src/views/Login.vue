@@ -183,27 +183,38 @@ import { useConfigStore } from '@/stores/config'
 const router = useRouter()
 const route = useRoute()
 
-const authStore = useAuthStore()
-const userStore = useUserStore()
-const configStore = useConfigStore()
+// 初始化状态管理实例
+const authStore = useAuthStore()    // 认证状态（登录/登出/当前用户）
+const userStore = useUserStore()    // 用户数据（用户列表/登录验证/注册）
+const configStore = useConfigStore() // 系统配置（验证码开关等）
 
-// ========== 验证码 ==========
+// ========== 验证码机制 ==========
+/**
+ * 验证码功能说明：
+ * 1. 是否启用由系统配置决定（config.enableCaptcha）
+ * 2. 每次生成4位随机数字验证码
+ * 3. 用户点击验证码区域可刷新
+ * 4. 登录失败后自动刷新验证码（防止暴力破解）
+ * 5. 验证码校验通过后才允许提交登录请求
+ */
 const enableCaptcha = computed(() => configStore.config.value?.enableCaptcha ?? true)
 
+// 生成4位随机数字验证码（范围：1000-9999）
 function generateCaptcha() {
   return String(Math.floor(1000 + Math.random() * 9000))
 }
 
 const captchaCode = ref('')
+// 刷新验证码（页面初始化和登录失败时调用）
 function refreshCaptcha() {
   captchaCode.value = generateCaptcha()
 }
 
-// ========== 登录表单 ==========
+// ========== 登录表单与验证 ==========
 const activeTab = ref('account')
-const loginFormRef = ref(null)
-const loading = ref(false)
-const rememberMe = ref(false)
+const loginFormRef = ref(null)    // 表单引用，用于手动触发验证
+const loading = ref(false)        // 登录按钮加载状态
+const rememberMe = ref(false)     // 记住密码（读者端暂未实现持久化）
 
 const loginForm = reactive({
   username: '',
@@ -212,14 +223,11 @@ const loginForm = reactive({
 })
 
 const loginRules = {
-  username: [
-    { required: true, message: '请输入账号', trigger: 'blur' }
-  ],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' }
-  ],
+  username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
   captcha: [
     { required: true, message: '请输入验证码', trigger: 'blur' },
+    // 自定义验证器：校验用户输入的验证码与生成的验证码是否一致
     {
       validator: (_rule, value, callback) => {
         if (value && value !== captchaCode.value) {
@@ -233,27 +241,41 @@ const loginRules = {
   ]
 }
 
+/**
+ * 登录处理流程：
+ * 1. 表单验证（用户名、密码、验证码）
+ * 2. 调用 userStore.login() 进行用户身份验证（密码比对）
+ * 3. 验证成功 → 调用 authStore.setCurrentUser() 设置登录状态
+ * 4. 根据路由参数跳转（优先 redirect，否则跳转到图书查询页）
+ * 5. 验证失败 → 提示错误并刷新验证码
+ */
 async function handleLogin() {
   if (!loginFormRef.value) return
 
+  // 步骤1：表单验证（Element-Plus 表单验证）
   try {
     await loginFormRef.value.validate()
   } catch {
-    return
+    return // 验证失败，终止登录流程
   }
 
   loading.value = true
   try {
+    // 步骤2：调用 userStore.login() 验证账号密码（角色限定为 'user'）
     const user = userStore.login(loginForm.username, loginForm.password, 'user')
+    
     if (user) {
+      // 步骤3：验证成功，设置登录状态（持久化到 localStorage）
       authStore.setCurrentUser(user)
       ElMessage.success('登录成功')
 
+      // 步骤4：跳转页面（支持 redirect 参数，默认跳转到图书查询页）
       const redirect = route.query.redirect
       router.push(redirect || '/book-query')
     } else {
+      // 步骤5：验证失败（账号不存在或密码错误）
       ElMessage.error('账号或密码错误')
-      refreshCaptcha()
+      refreshCaptcha() // 刷新验证码，防止暴力破解
     }
   } catch (err) {
     ElMessage.error('登录失败，请重试')
@@ -275,6 +297,7 @@ const registerForm = reactive({
   phone: ''
 })
 
+// 自定义验证器：确认密码与密码是否一致
 const validateConfirmPassword = (_rule, value, callback) => {
   if (value !== registerForm.password) {
     callback(new Error('两次输入的密码不一致'))
@@ -301,6 +324,13 @@ const registerRules = {
   ]
 }
 
+/**
+ * 用户注册流程：
+ * 1. 表单验证（用户名、密码、确认密码、手机号）
+ * 2. 调用 userStore.register() 创建用户（自动检测用户名是否重复）
+ * 3. 注册成功 → 设置登录状态并自动跳转
+ * 4. 注册失败（用户名已存在）→ 提示错误
+ */
 async function handleRegister() {
   if (!registerFormRef.value) return
 
@@ -319,11 +349,13 @@ async function handleRegister() {
     })
 
     if (user) {
+      // 注册成功，自动登录并跳转
       authStore.setCurrentUser(user)
       ElMessage.success('注册成功，已自动登录')
       showRegisterDialog.value = false
       router.push('/book-query')
     } else {
+      // 用户名已存在
       ElMessage.error('用户名已存在，请更换')
     }
   } catch (err) {
@@ -334,10 +366,16 @@ async function handleRegister() {
 }
 
 // ========== 初始化 ==========
+/**
+ * 页面初始化逻辑：
+ * 1. 加载用户列表（用于登录验证和注册检测）
+ * 2. 加载系统配置（用于控制验证码开关）
+ * 3. 生成初始验证码
+ */
 onMounted(() => {
-  userStore.fetchUsers()
-  configStore.fetchConfig()
-  refreshCaptcha()
+  userStore.fetchUsers()   // 加载用户数据
+  configStore.fetchConfig() // 加载系统配置
+  refreshCaptcha()         // 生成初始验证码
 })
 </script>
 

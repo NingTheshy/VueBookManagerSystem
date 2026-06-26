@@ -176,8 +176,26 @@ function tableRowClassName({ row }) {
   return isOverdue ? 'overdue-row' : ''
 }
 
-// 还书
+/**
+ * 图书还书处理（三Store协调事务）
+ * 
+ * 还书操作是借阅操作的逆过程，同样涉及三个数据实体的状态同步：
+ * 
+ * 1. BorrowStore：更新借阅记录状态
+ *    - 将借阅记录的 status 从 'borrowing' 或 'overdue' 改为 'returned'
+ *    - 记录实际归还时间
+ * 
+ * 2. BookStore：恢复图书库存
+ *    - 将图书的 borrowCount 减1，增加可借数量
+ * 
+ * 3. UserStore：更新用户借阅统计
+ *    - 当前用户的借阅次数 -1（仅当大于0时）
+ * 
+ * 注意：还书操作前会弹出确认对话框，防止误操作。
+ * 与借阅类似，由于使用 localStorage 持久化，此处未实现事务回滚机制。
+ */
 function handleReturn(row) {
+  // 弹出确认对话框，防止误操作
   ElMessageBox.confirm(
     `确认归还《${row.bookName}》吗？`,
     '还书确认',
@@ -187,10 +205,16 @@ function handleReturn(row) {
       type: 'info'
     }
   ).then(() => {
+    // ========== 步骤1：更新借阅记录状态 ==========
+    // 将借阅记录标记为已归还，并记录归还时间
     borrowStore.returnBook(row.id)
+
+    // ========== 步骤2：恢复图书库存 ==========
+    // 将图书的 borrowCount 减1，增加可借数量
     bookStore.decrementBorrowCount(row.bookId)
 
-    // 更新用户借阅数量
+    // ========== 步骤3：更新用户借阅统计 ==========
+    // 当前用户的借阅次数 -1（仅当大于0时，避免负数）
     const currentUser = authStore.currentUser
     if (currentUser && currentUser.borrowCount > 0) {
       userStore.updateUser(currentUser.id, {
@@ -198,14 +222,15 @@ function handleReturn(row) {
       })
     }
 
-    // 刷新数据
-    borrowStore.fetchBorrows()
-    bookStore.fetchBooks()
-    userStore.fetchUsers()
+    // ========== 步骤4：刷新所有相关数据 ==========
+    // 确保界面显示最新状态
+    borrowStore.fetchBorrows() // 刷新借阅记录列表
+    bookStore.fetchBooks()     // 刷新图书列表（更新可借数量）
+    userStore.fetchUsers()     // 刷新用户列表（更新排行榜）
 
     ElMessage.success(`归还《${row.bookName}》成功！`)
   }).catch(() => {
-    // 取消操作
+    // 用户取消操作，不做任何处理
   })
 }
 

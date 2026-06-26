@@ -84,51 +84,70 @@ const router = createRouter({
 })
 
 // ==================== 路由守卫 ====================
+/**
+ * 路由前置守卫 - 实现完整的访问控制逻辑
+ * 
+ * 三分支访问控制策略：
+ * 
+ * 1. 游客页面分支（guest: true）
+ *    - 场景：读者登录页 /login、管理员登录页 /admin/login
+ *    - 已登录用户访问 → 自动跳转对应角色的首页
+ *      - admin角色 → /admin/user-manage
+ *      - user角色 → /book-query
+ *    - 未登录用户 → 正常访问登录页
+ * 
+ * 2. 需要登录的页面分支（requiresAuth: true）
+ *    - 未登录用户 → 根据目标路径跳转对应登录页
+ *      - /admin/* → /admin/login
+ *      - 其他 → /login
+ * 
+ * 3. 角色权限校验分支
+ *    - 当前用户角色与目标页面要求角色不匹配时
+ *      - admin用户访问user页面 → 跳转到 /admin/user-manage
+ *      - user用户访问admin页面 → 跳转到 /book-query
+ * 
+ * 4. 无特殊权限要求的页面 → 直接放行
+ */
 router.beforeEach((to, from, next) => {
-  // 设置页面标题
+  // 设置页面标题（统一添加系统名称后缀）
   document.title = to.meta.title ? `${to.meta.title} - 图书管理系统` : '图书管理系统'
 
+  // 从localStorage获取当前登录用户（持久化登录状态）
   const currentUser = JSON.parse(localStorage.getItem('bms_currentUser'))
   const isAuthenticated = !!currentUser
   const requiredRole = to.meta.role
 
-  // 游客页面（登录页），已登录则跳转对应首页
+  // ========== 分支1：游客页面（登录页）访问控制 ==========
   if (to.meta.guest) {
+    // 已登录用户不应访问登录页，自动跳转首页
     if (isAuthenticated) {
-      if (currentUser.role === 'admin') {
-        next('/admin/user-manage')
-      } else {
-        next('/book-query')
-      }
+      next(currentUser.role === 'admin' ? '/admin/user-manage' : '/book-query')
     } else {
+      // 未登录用户正常访问登录页
       next()
     }
-    return
+    return // 终止后续逻辑
   }
 
-  // 需要登录的页面
+  // ========== 分支2：需要登录的页面访问控制 ==========
   if (to.meta.requiresAuth) {
+    // 用户未登录，跳转到对应登录页
     if (!isAuthenticated) {
-      // 未登录，根据目标路径跳转对应登录页
-      if (to.path.startsWith('/admin')) {
-        next('/admin/login')
-      } else {
-        next('/login')
-      }
-      return
+      // 根据目标路径判断跳转到哪个登录页
+      next(to.path.startsWith('/admin') ? '/admin/login' : '/login')
+      return // 终止后续逻辑
     }
 
-    // 角色权限校验
+    // ========== 分支3：角色权限校验 ==========
+    // 目标页面有角色要求，且当前用户角色不匹配
     if (requiredRole && currentUser.role !== requiredRole) {
-      if (currentUser.role === 'admin') {
-        next('/admin/user-manage')
-      } else {
-        next('/book-query')
-      }
-      return
+      // 角色不匹配时，跳转到当前角色的首页
+      next(currentUser.role === 'admin' ? '/admin/user-manage' : '/book-query')
+      return // 终止后续逻辑
     }
   }
 
+  // ========== 默认：无特殊权限要求，直接放行 ==========
   next()
 })
 

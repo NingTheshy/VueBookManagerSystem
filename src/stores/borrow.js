@@ -1,6 +1,26 @@
 /**
- * useBorrowStore - 借阅状态管理
- * 管理借阅记录的增删改查与归还操作
+ * useBorrowStore - 借阅状态管理模块
+ * 
+ * 职责：
+ * - 管理借阅记录的完整生命周期（创建、查询、归还、修改）
+ * - 提供基于条件的借阅记录筛选（图书名、分类、作者、状态）
+ * - 追踪当前用户的借阅记录
+ * - 自动记录逾期借阅（status='overdue'）
+ * - 每次操作自动写入操作日志
+ * 
+ * 核心数据结构（借阅记录）：
+ * - id: 借阅记录唯一标识
+ * - bookId/bookNo/bookName/bookCategory/bookAuthor/bookPrice: 关联图书信息
+ * - userId/userAccount/userName: 关联用户信息
+ * - borrowDate: 借阅日期
+ * - dueDate: 预计归还日期
+ * - returnDate: 实际归还日期（未归还时为null）
+ * - status: 状态（'borrowing' | 'overdue' | 'returned'）
+ * 
+ * 依赖：
+ * - @/utils/storage: localStorage 持久化操作
+ * - @/utils/id: ID生成工具
+ * - @/stores/log: 操作日志记录
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'

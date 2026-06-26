@@ -220,28 +220,54 @@ function handleReset() {
   currentPage.value = 1
 }
 
-// 借阅
+/**
+ * 图书借阅处理（三Store协调事务）
+ * 
+ * 借阅操作涉及三个数据实体的状态同步，必须按顺序执行：
+ * 
+ * 1. BookStore：更新图书的借阅计数（borrowCount++）
+ *    - 减少可借数量，确保库存数据准确
+ * 
+ * 2. BorrowStore：创建借阅记录
+ *    - 记录借阅时间、预计归还时间（基于系统配置的借阅天数）
+ *    - 关联图书和用户信息
+ * 
+ * 3. UserStore：更新用户的借阅统计
+ *    - 用户借阅次数 +1
+ *    - 刷新用户列表以更新排行榜数据
+ * 
+ * 注意：由于使用 localStorage 持久化，此处未实现事务回滚机制。
+ * 若某一步失败，可能导致数据不一致，需在实际后端场景中引入事务。
+ */
 function handleBorrow(book) {
+  // 前置校验1：检查图书是否有可借库存
   const availableCount = book.totalCount - book.borrowCount
   if (availableCount <= 0) {
     ElMessage.warning('该书已全部借出')
     return
   }
 
+  // 前置校验2：检查用户是否已登录
   const currentUser = authStore.currentUser
   if (!currentUser) {
     ElMessage.error('请先登录')
     return
   }
 
+  // ========== 步骤1：更新图书借阅计数 ==========
+  // 将图书的 borrowCount 加1，减少可借数量
   bookStore.incrementBorrowCount(book.id)
+
+  // ========== 步骤2：创建借阅记录 ==========
+  // 借阅天数从系统配置中获取（默认为30天）
   borrowStore.addBorrow(book, currentUser, configStore.config.borrowDays)
 
-  // 更新用户借阅数量
+  // ========== 步骤3：更新用户借阅统计 ==========
+  // 用户借阅次数 +1，并刷新用户列表（更新排行榜）
   userStore.updateUser(currentUser.id, {
     borrowCount: (currentUser.borrowCount || 0) + 1
   })
-  userStore.fetchUsers()
+  userStore.fetchUsers() // 刷新用户列表以更新最佳读者排行榜
 
   ElMessage.success(`借阅《${book.name}》成功！`)
 }

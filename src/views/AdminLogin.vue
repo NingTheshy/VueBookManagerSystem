@@ -108,14 +108,15 @@ import { encodePassword, decodePassword } from '@/utils/storage'
 const router = useRouter()
 const route = useRoute()
 
-const authStore = useAuthStore()
-const userStore = useUserStore()
-const configStore = useConfigStore()
+// 初始化状态管理实例
+const authStore = useAuthStore()    // 认证状态（当前用户、记住密码）
+const userStore = useUserStore()    // 用户数据（用户列表/登录验证）
+const configStore = useConfigStore() // 系统配置（默认管理员密码等）
 
 // ========== 表单 ==========
-const loginFormRef = ref(null)
-const loading = ref(false)
-const rememberMe = ref(false)
+const loginFormRef = ref(null)    // 表单引用，用于手动触发验证
+const loading = ref(false)        // 登录按钮加载状态
+const rememberMe = ref(false)     // 记住密码开关
 
 const loginForm = reactive({
   username: '',
@@ -123,17 +124,35 @@ const loginForm = reactive({
 })
 
 const loginRules = {
-  username: [
-    { required: true, message: '请输入管理员账号', trigger: 'blur' }
-  ],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' }
-  ]
+  username: [{ required: true, message: '请输入管理员账号', trigger: 'blur' }],
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
+/**
+ * 管理员登录处理流程（双认证链）：
+ * 
+ * 认证链1（主认证）：用户表认证
+ *   - 调用 userStore.login() 查找用户表中 role='admin' 的用户
+ *   - 比对用户名和密码（Base64编码存储）
+ * 
+ * 认证链2（回退认证）：默认管理员认证
+ *   - 若用户表中未找到匹配的管理员
+ *   - 读取系统配置中的默认管理员密码（config.adminPassword）
+ *   - 解码后与输入密码比对
+ *   - 仅支持 username='admin' 的登录
+ * 
+ * 设计意图：
+ *   - 默认管理员始终可用，防止所有管理员账户被删除后无法登录
+ *   - 系统配置中的密码采用 Base64 编码存储，避免明文暴露
+ * 
+ * 记住密码功能：
+ *   - 用户勾选"记住密码"后，密码以 Base64 编码形式存储在 localStorage
+ *   - 下次登录时自动解码并预填充表单
+ */
 async function handleLogin() {
   if (!loginFormRef.value) return
 
+  // 步骤1：表单验证
   try {
     await loginFormRef.value.validate()
   } catch {
@@ -142,14 +161,18 @@ async function handleLogin() {
 
   loading.value = true
   try {
-    // 尝试通过 userStore 验证管理员登录
+    // ========== 认证链1：用户表认证 ==========
+    // 在用户列表中查找 role='admin' 的匹配用户
     let user = userStore.login(loginForm.username, loginForm.password, 'admin')
 
-    // 回退逻辑：若 userStore 中无此管理员，则校验默认管理员账户
+    // ========== 认证链2：回退认证（默认管理员） ==========
+    // 若用户表中无匹配管理员，则尝试系统配置的默认管理员账户
     if (!user) {
+      // 从系统配置中读取默认管理员密码并解码（Base64解码）
       const decodedAdminPwd = decodePassword(configStore.config.value.adminPassword)
+      // 仅允许 username='admin' 的默认管理员登录
       if (loginForm.username === 'admin' && loginForm.password === decodedAdminPwd) {
-        // 构造管理员用户对象
+        // 构造管理员用户对象（默认管理员不在用户表中）
         user = {
           id: 'admin',
           username: 'admin',
@@ -158,21 +181,27 @@ async function handleLogin() {
       }
     }
 
+    // ========== 登录成功处理 ==========
     if (user) {
+      // 设置登录状态（持久化到 localStorage）
       authStore.setCurrentUser(user)
 
-      // 记住密码
+      // 记住密码处理
       if (rememberMe.value) {
+        // 密码以 Base64 编码形式存储（防止明文存储）
         authStore.rememberAdmin(loginForm.username, encodePassword(loginForm.password))
         ElMessage.success('登录成功，密码已保存')
       } else {
+        // 清除之前保存的密码
         authStore.clearRememberedAdmin()
         ElMessage.success('登录成功')
       }
 
+      // 跳转页面（支持 redirect 参数，默认跳转到用户管理页）
       const redirect = route.query.redirect
       router.push(redirect || '/admin/user-manage')
     } else {
+      // 两条认证链均失败
       ElMessage.error('账号或密码错误')
     }
   } catch (err) {
@@ -183,11 +212,17 @@ async function handleLogin() {
 }
 
 // ========== 初始化 ==========
+/**
+ * 页面初始化逻辑：
+ * 1. 加载用户列表（用于认证链1的用户验证）
+ * 2. 加载系统配置（用于认证链2的默认管理员密码读取）
+ * 3. 恢复记住的密码（若存在），自动填充表单
+ */
 onMounted(() => {
-  userStore.fetchUsers()
-  configStore.fetchConfig()
+  userStore.fetchUsers()   // 加载用户数据
+  configStore.fetchConfig() // 加载系统配置
 
-  // 若存在记住的密码，预填充表单
+  // 恢复记住的密码（Base64解码后填充）
   const remembered = authStore.rememberedAdmin
   if (remembered && remembered.username) {
     loginForm.username = remembered.username

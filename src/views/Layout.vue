@@ -159,13 +159,14 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
-const isCollapse = ref(false)
-const visitedViews = ref([])
-const tagsWrapperRef = ref(null)
+const isCollapse = ref(false)           // 侧边栏折叠状态
+const visitedViews = ref([])            // 已访问的标签页列表
+const tagsWrapperRef = ref(null)        // 标签页容器引用（用于滚动）
 
-const activeMenu = computed(() => route.path)
-const adminName = computed(() => authStore.currentUser?.username || 'admin')
+const activeMenu = computed(() => route.path)                    // 当前激活的菜单路径
+const adminName = computed(() => authStore.currentUser?.username || 'admin') // 当前管理员名称
 
+// 面包屑导航计算 - 过滤掉根路由 /admin，只显示子路由层级
 const breadcrumbs = computed(() => {
   const matched = route.matched.filter(item => item.meta && item.meta.title)
   if (matched.length > 0 && matched[0].path === '/admin') {
@@ -174,36 +175,69 @@ const breadcrumbs = computed(() => {
   return matched
 })
 
+// 切换侧边栏折叠状态
 function toggleSidebar() {
   isCollapse.value = !isCollapse.value
 }
 
+// 判断标签是否为当前激活状态
 function isActiveTag(tag) {
   return tag.path === route.path
 }
 
+/**
+ * 添加已访问视图到标签页列表
+ * 
+ * 逻辑说明：
+ * 1. 只有包含 meta.title 的路由才会添加标签页（排除无标题的路由）
+ * 2. 避免重复添加：检查 path 是否已存在于列表中
+ * 3. 记录完整路径（fullPath），支持带查询参数的路由
+ * 
+ * 使用场景：路由切换时自动调用（通过 watch 监听 route.path）
+ */
 function addVisitedView() {
   const { path, meta } = route
+  // 无标题的路由不添加标签页
   if (!meta.title) return
+  
+  // 检查是否已存在，避免重复添加
   const existing = visitedViews.value.find(v => v.path === path)
   if (!existing) {
     visitedViews.value.push({
       path,
       title: meta.title,
-      fullPath: route.fullPath
+      fullPath: route.fullPath  // 保留完整路径，支持带查询参数的路由
     })
   }
 }
 
+// 点击标签页跳转到对应路由
 function goToTag(tag) {
   router.push(tag.fullPath || tag.path)
 }
 
+/**
+ * 关闭单个标签页
+ * 
+ * 边缘情况处理：
+ * 1. 如果关闭的是当前激活的标签页 → 需要跳转到相邻标签页
+ *    - 优先跳转到同一位置的下一个标签（index 不变）
+ *    - 如果下一个不存在，则跳转到前一个标签（index - 1）
+ * 2. 如果列表中只有一个标签页 → 关闭后列表为空，不跳转（除非用户手动关闭）
+ * 
+ * 注意：关闭按钮仅在标签页数量 > 1 时显示（template 中已处理）
+ */
 function handleCloseTag(tag) {
+  // 查找要关闭的标签页索引
   const index = visitedViews.value.findIndex(v => v.path === tag.path)
   if (index === -1) return
+
+  // 从列表中移除该标签页
   visitedViews.value.splice(index, 1)
+
+  // 如果关闭的是当前激活的标签页，需要跳转到相邻标签
   if (isActiveTag(tag)) {
+    // 优先选择下一个标签，若无则选择前一个
     const nextTag = visitedViews.value[index] || visitedViews.value[index - 1]
     if (nextTag) {
       router.push(nextTag.fullPath || nextTag.path)
@@ -211,21 +245,35 @@ function handleCloseTag(tag) {
   }
 }
 
+/**
+ * 关闭其他标签页
+ * 
+ * 逻辑：保留当前激活的标签页，移除所有其他标签页
+ * 如果当前路由不在标签列表中（异常情况），则清空列表
+ */
 function handleCloseOthers() {
   const currentTag = visitedViews.value.find(v => v.path === route.path)
   visitedViews.value = currentTag ? [currentTag] : []
 }
 
+/**
+ * 关闭所有标签页
+ * 
+ * 逻辑：清空标签列表并跳转到管理员首页（/admin）
+ * 确保用户不会停留在空白页面
+ */
 function handleCloseAll() {
   visitedViews.value = []
   router.push('/admin')
 }
 
+// 退出登录 - 清除认证状态并跳转到管理员登录页
 function handleLogout() {
   authStore.logout()
   router.push('/admin/login')
 }
 
+// 监听路由变化，自动添加标签页（立即执行一次以初始化）
 watch(
   () => route.path,
   () => {
